@@ -3,6 +3,7 @@ package ru.practicum.moviehub.http;
 import ru.practicum.moviehub.api.ErrorResponse;
 import ru.practicum.moviehub.model.Movie;
 import ru.practicum.moviehub.store.MoviesStore;
+import ru.practicum.moviehub.api.CreateMovieRequest;
 
 import com.google.gson.JsonSyntaxException;
 import com.sun.net.httpserver.HttpExchange;
@@ -94,25 +95,25 @@ public class MoviesHandler extends BaseHttpHandler {
             return;
         }
 
-        Movie incoming;
+        CreateMovieRequest request;
         try {
-            incoming = gson.fromJson(readBody(ex), Movie.class);
+            request = gson.fromJson(readBody(ex), CreateMovieRequest.class);
         } catch (JsonSyntaxException e) {
-            sendError(ex, 400, new ErrorResponse("Некорректный JSON"));
+            sendError(ex, 422, new ErrorResponse("Некорректный JSON"));
             return;
         }
-        if (incoming == null) { // пустое тело или "null"
-            sendError(ex, 400, new ErrorResponse("Некорректный JSON"));
+        if (request == null) { // пустое тело или "null"
+            sendError(ex, 422, new ErrorResponse("Некорректный JSON"));
             return;
         }
 
-        List<String> problems = validate(incoming);
+        List<String> problems = validate(request);
         if (!problems.isEmpty()) {
             sendError(ex, 422, new ErrorResponse("Ошибка валидации", problems));
             return;
         }
 
-        Movie created = store.add(incoming.getTitle(), incoming.getYear());
+        Movie created = store.add(request.getTitle(), request.getYear());
         sendObject(ex, 201, created);
     }
 
@@ -125,10 +126,10 @@ public class MoviesHandler extends BaseHttpHandler {
         return mediaType.equalsIgnoreCase("application/json");
     }
 
-    private List<String> validate(Movie movie) {
+    private List<String> validate(CreateMovieRequest request) {
         List<String> problems = new ArrayList<>();
 
-        String title = movie.getTitle();
+        String title = request.getTitle();
         if (title == null || title.isBlank()) {
             problems.add("название не должно быть пустым");
         } else if (title.length() > MAX_TITLE_LENGTH) {
@@ -136,7 +137,7 @@ public class MoviesHandler extends BaseHttpHandler {
         }
 
         int maxYear = Year.now().getValue() + 1;
-        Integer year = movie.getYear();
+        Integer year = request.getYear();
         if (year == null || year < MIN_YEAR || year > maxYear) {
             problems.add("год должен быть между " + MIN_YEAR + " и " + maxYear);
         }
@@ -169,7 +170,7 @@ public class MoviesHandler extends BaseHttpHandler {
             if (store.delete(id)) {
                 sendNoContent(ex);
             } else {
-                sendError(ex, 404, new ErrorResponse("Фильм не найден"));
+                sendNotFound(ex);
             }
         }
     }

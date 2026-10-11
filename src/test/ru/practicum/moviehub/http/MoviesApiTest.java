@@ -24,6 +24,10 @@ import ru.practicum.moviehub.store.MoviesStore;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.google.gson.JsonElement;
+
+import java.util.ArrayList;
+
 public class MoviesApiTest {
     private static final String BASE = "http://localhost:8080";
     private static final String CT_JSON = "application/json; charset=UTF-8";
@@ -93,12 +97,18 @@ public class MoviesApiTest {
         return JsonParser.parseString(resp.body()).getAsJsonArray();
     }
 
-    private void assertValidationError(HttpResponse<String> resp) {
+    private void assertValidationError(HttpResponse<String> resp, String expectedDetail) {
         assertEquals(422, resp.statusCode());
         assertJsonContentType(resp);
         JsonObject body = asObject(resp);
         assertTrue(body.has("error"));
-        assertFalse(body.getAsJsonArray("details").isEmpty(), "details не должен быть пустым");
+
+        List<String> details = new ArrayList<>();
+        for (JsonElement element : body.getAsJsonArray("details")) {
+            details.add(element.getAsString());
+        }
+        assertTrue(details.stream().anyMatch(d -> d.contains(expectedDetail)),
+                "details должен содержать '" + expectedDetail + "', но был: " + details);
     }
 
     @Test
@@ -118,6 +128,7 @@ public class MoviesApiTest {
         HttpResponse<String> resp = get("/movies");
 
         assertEquals(200, resp.statusCode());
+        assertJsonContentType(resp);
         List<Movie> movies = asMovies(resp);
         assertEquals(2, movies.size());
         assertEquals("Матрица", movies.get(0).getTitle());
@@ -145,23 +156,26 @@ public class MoviesApiTest {
 
     @Test
     void postMovie_withEmptyTitle_returns422() throws Exception {
-        assertValidationError(postJson("{\"title\":\"\",\"year\":2000}"));
-        assertValidationError(postJson("{\"title\":\"   \",\"year\":2000}"));
-        assertValidationError(postJson("{\"year\":2000}"));
+        String expected = "название не должно быть пустым";
+        assertValidationError(postJson("{\"title\":\"\",\"year\":2000}"), expected);
+        assertValidationError(postJson("{\"title\":\"   \",\"year\":2000}"), expected);
+        assertValidationError(postJson("{\"year\":2000}"), expected);
     }
 
     @Test
     void postMovie_withTooLongTitle_returns422() throws Exception {
         String longTitle = "a".repeat(101);
-        assertValidationError(postJson("{\"title\":\"" + longTitle + "\",\"year\":2000}"));
+        assertValidationError(postJson("{\"title\":\"" + longTitle + "\",\"year\":2000}"),
+                "название не должно быть длиннее 100");
     }
 
     @Test
     void postMovie_withInvalidYear_returns422() throws Exception {
-        assertValidationError(postJson("{\"title\":\"Фильм\",\"year\":1887}"));
+        String expected = "год должен быть между";
+        assertValidationError(postJson("{\"title\":\"Фильм\",\"year\":1887}"), expected);
         int tooFar = Year.now().getValue() + 2;
-        assertValidationError(postJson("{\"title\":\"Фильм\",\"year\":" + tooFar + "}"));
-        assertValidationError(postJson("{\"title\":\"Фильм\"}"));
+        assertValidationError(postJson("{\"title\":\"Фильм\",\"year\":" + tooFar + "}"), expected);
+        assertValidationError(postJson("{\"title\":\"Фильм\"}"), expected);
     }
 
     @Test
@@ -174,10 +188,10 @@ public class MoviesApiTest {
     }
 
     @Test
-    void postMovie_withMalformedJson_returns400() throws Exception {
+    void postMovie_withMalformedJson_returns422() throws Exception {
         HttpResponse<String> resp = postJson("{\"title\": ");
 
-        assertEquals(400, resp.statusCode());
+        assertEquals(422, resp.statusCode());
         assertJsonContentType(resp);
         assertTrue(asObject(resp).has("error"));
     }
@@ -227,7 +241,7 @@ public class MoviesApiTest {
         HttpResponse<String> resp = delete("/movies/999");
 
         assertEquals(404, resp.statusCode());
-        assertTrue(asObject(resp).has("error"));
+        assertEquals("", resp.body());
     }
 
     @Test
@@ -235,6 +249,7 @@ public class MoviesApiTest {
         HttpResponse<String> resp = delete("/movies/abc");
 
         assertEquals(400, resp.statusCode());
+        assertJsonContentType(resp);
         assertTrue(asObject(resp).has("error"));
     }
 
@@ -260,6 +275,7 @@ public class MoviesApiTest {
         HttpResponse<String> resp = get("/movies?year=1950");
 
         assertEquals(200, resp.statusCode());
+        assertJsonContentType(resp);
         assertEquals(0, asArray(resp).size());
     }
 
@@ -287,5 +303,25 @@ public class MoviesApiTest {
         assertEquals(405, onItem.statusCode());
         assertJsonContentType(onItem);
         assertTrue(asObject(onItem).has("error"));
+    }
+
+    @Test
+    void postMovie_ignoresIdFromRequest() throws Exception {
+        HttpResponse<String> resp = postJson("{\"id\":100,\"title\":\"Фильм\",\"year\":2000}");
+
+        assertEquals(201, resp.statusCode());
+        assertEquals(1, asObject(resp).get("id").getAsInt());
+    }
+
+    @Test
+    void postMovie_withoutContentType_returns415() throws Exception {
+        HttpResponse<String> resp = send(HttpRequest.newBuilder()
+                .uri(URI.create(BASE + "/movies"))
+                .POST(BodyPublishers.ofString("{\"title\":\"Фильм\",\"year\":2000}", StandardCharsets.UTF_8))
+                .build());
+
+        assertEquals(415, resp.statusCode());
+        assertJsonContentType(resp);
+        assertTrue(asObject(resp).has("error"));
     }
 }

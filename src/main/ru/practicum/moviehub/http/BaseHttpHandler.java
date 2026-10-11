@@ -42,4 +42,9 @@ public abstract class BaseHttpHandler implements HttpHandler {
     protected String readBody(HttpExchange ex) throws IOException {
         return new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
     }
+
+    protected void sendNotFound(HttpExchange ex) throws IOException {
+        ex.sendResponseHeaders(404, -1);
+        ex.close();
+    }
 }
